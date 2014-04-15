@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import net.arnx.jsonic.JSON;
 import net.arnx.jsonic.JSONException;
@@ -16,14 +17,15 @@ import com.cybozu.labs.langdetect.util.LangProfile;
 /**
  * Language Detector Factory Class
  * 
- * This class manages an initialization and constructions of {@link Detector}. 
+ * This class manages an initialization and construction of DetectoryFactory instances. 
  * 
- * Before using language detection library, 
- * load profiles with {@link DetectorFactory#loadProfile(String)} method
- * and set initialization parameters.
+ * Before using language detection library you must create a DetectorFactory. The factory 
+ * manages the profile/model data that is used during detection. The profile/model 
+ * data must be loaded before creating instances of {@link Detector}. 
  * 
- * When the language detection,
- * construct Detector instance via {@link DetectorFactory#create()}.
+ * When the language detection factory is created and loaded with a profile/model, construct 
+ * Detector instance via {@link DetectorFactory#create()}.
+ * 
  * See also {@link Detector}'s sample code.
  * 
  * <ul>
@@ -34,14 +36,16 @@ import com.cybozu.labs.langdetect.util.LangProfile;
  * @author Nakatani Shuyo
  */
 public class DetectorFactory {
-    public HashMap<String, double[]> wordLangProbMap;
-    public ArrayList<String> langlist;
-    public Long seed = null;
+	private static final Map<String, DetectorFactory> factories = new HashMap<String, DetectorFactory>();
+	
+    HashMap<String, double[]> wordLangProbMap;
+    ArrayList<String> langlist;
+    Long seed;
+    
     private DetectorFactory() {
         wordLangProbMap = new HashMap<String, double[]>();
         langlist = new ArrayList<String>();
     }
-    static private DetectorFactory instance_ = new DetectorFactory();
 
     /**
      * Load profiles from specified directory.
@@ -51,7 +55,7 @@ public class DetectorFactory {
      * @throws LangDetectException  Can't open profiles(error code = {@link ErrorCode#FileLoadError})
      *                              or profile's format is wrong (error code = {@link ErrorCode#FormatError})
      */
-    public static void loadProfile(String profileDirectory) throws LangDetectException {
+    public void loadProfile(String profileDirectory) throws LangDetectException {
         loadProfile(new File(profileDirectory));
     }
 
@@ -59,15 +63,16 @@ public class DetectorFactory {
      * Load profiles from specified directory.
      * This method must be called once before language detection.
      *  
+     * @param profileName profile name
      * @param profileDirectory profile directory path
      * @throws LangDetectException  Can't open profiles(error code = {@link ErrorCode#FileLoadError})
      *                              or profile's format is wrong (error code = {@link ErrorCode#FormatError})
      */
-    public static void loadProfile(File profileDirectory) throws LangDetectException {
+    public synchronized void loadProfile(File profileDirectory) throws LangDetectException {
         File[] listFiles = profileDirectory.listFiles();
         if (listFiles == null)
             throw new LangDetectException(ErrorCode.NeedLoadProfileError, "Not found profile: " + profileDirectory);
-            
+        
         int langsize = listFiles.length, index = 0;
         for (File file: listFiles) {
             if (file.getName().startsWith(".") || !file.isFile()) continue;
@@ -92,12 +97,13 @@ public class DetectorFactory {
     /**
      * Load profiles from specified directory.
      * This method must be called once before language detection.
-     *  
+     *
+     * @param profileName profile name
      * @param profileDirectory profile directory path
      * @throws LangDetectException  Can't open profiles(error code = {@link ErrorCode#FileLoadError})
      *                              or profile's format is wrong (error code = {@link ErrorCode#FormatError})
      */
-    public static void loadProfile(List<String> json_profiles) throws LangDetectException {
+    public synchronized void loadProfile(List<String> json_profiles) throws LangDetectException {
         int index = 0;
         int langsize = json_profiles.size();
         if (langsize < 2)
@@ -113,6 +119,17 @@ public class DetectorFactory {
             }
         }
     }
+    
+    public static DetectorFactory getFactory(String profileName) {
+    	synchronized(factories) {
+	    	if (factories.containsKey(profileName))
+	    		return factories.get(profileName);
+	    	
+	    	DetectorFactory factory = new DetectorFactory();
+	    	factories.put(profileName, factory);
+	    	return factory;
+    	}
+    }
 
     /**
      * @param profile
@@ -120,20 +137,20 @@ public class DetectorFactory {
      * @param index 
      * @throws LangDetectException 
      */
-    static /* package scope */ void addProfile(LangProfile profile, int index, int langsize) throws LangDetectException {
+    /* package scope */ void addProfile(LangProfile profile, int index, int langsize) throws LangDetectException {
         String lang = profile.name;
-        if (instance_.langlist.contains(lang)) {
+        if (langlist.contains(lang)) 
             throw new LangDetectException(ErrorCode.DuplicateLangError, "duplicate the same language profile");
-        }
-        instance_.langlist.add(lang);
+
+        langlist.add(lang);
         for (String word: profile.freq.keySet()) {
-            if (!instance_.wordLangProbMap.containsKey(word)) {
-                instance_.wordLangProbMap.put(word, new double[langsize]);
+            if (!wordLangProbMap.containsKey(word)) {
+            	wordLangProbMap.put(word, new double[langsize]);
             }
             int length = word.length();
             if (length >= 1 && length <= 3) {
                 double prob = profile.freq.get(word).doubleValue() / profile.n_words[length - 1];
-                instance_.wordLangProbMap.get(word)[index] = prob;
+                wordLangProbMap.get(word)[index] = prob;
             }
         }
     }
@@ -141,9 +158,9 @@ public class DetectorFactory {
     /**
      * Clear loaded language profiles (reinitialization to be available)
      */
-    static public void clear() {
-        instance_.langlist.clear();
-        instance_.wordLangProbMap.clear();
+    public synchronized void clear() {
+        langlist.clear();
+        wordLangProbMap.clear();
     }
 
     /**
@@ -152,8 +169,11 @@ public class DetectorFactory {
      * @return Detector instance
      * @throws LangDetectException 
      */
-    static public Detector create() throws LangDetectException {
-        return createDetector();
+    public Detector create() throws LangDetectException {
+        if (langlist.isEmpty())
+            throw new LangDetectException(ErrorCode.NeedLoadProfileError, "need to load profiles");
+    	
+        return new Detector(this);
     }
 
     /**
@@ -163,24 +183,17 @@ public class DetectorFactory {
      * @return Detector instance
      * @throws LangDetectException 
      */
-    public static Detector create(double alpha) throws LangDetectException {
-        Detector detector = createDetector();
+    public Detector create(double alpha) throws LangDetectException {
+        Detector detector = create();
         detector.setAlpha(alpha);
         return detector;
     }
-
-    static private Detector createDetector() throws LangDetectException {
-        if (instance_.langlist.size()==0)
-            throw new LangDetectException(ErrorCode.NeedLoadProfileError, "need to load profiles");
-        Detector detector = new Detector(instance_);
-        return detector;
+    
+    public void setSeed(long seed) {
+        this.seed = seed;
     }
     
-    public static void setSeed(long seed) {
-        instance_.seed = seed;
-    }
-    
-    public static final List<String> getLangList() {
-        return Collections.unmodifiableList(instance_.langlist);
+    public final List<String> getLangList() {
+        return Collections.unmodifiableList(langlist);
     }
 }

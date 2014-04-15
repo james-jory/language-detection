@@ -27,6 +27,7 @@ import net.arnx.jsonic.JSONException;
  *
  */
 public class Command {
+	private static final String DEFAULT_PROFILE = "DEFAULT";
     /** smoothing default parameter (ELE) */
     private static final double DEFAULT_ALPHA = 0.5;
 
@@ -104,9 +105,11 @@ public class Command {
     private boolean loadProfile() {
         String profileDirectory = get("directory") + "/"; 
         try {
-            DetectorFactory.loadProfile(profileDirectory);
+            DetectorFactory factory = DetectorFactory.getFactory(DEFAULT_PROFILE);
+            factory.loadProfile(profileDirectory);
             Long seed = getLong("seed");
-            if (seed != null) DetectorFactory.setSeed(seed);
+            if (seed != null) 
+            	factory.setSeed(seed);
             return false;
         } catch (LangDetectException e) {
             System.err.println("ERROR: " + e.getMessage());
@@ -214,7 +217,7 @@ public class Command {
             try {
                 is = new BufferedReader(new InputStreamReader(new FileInputStream(filename), "utf-8"));
 
-                Detector detector = DetectorFactory.create(getDouble("alpha", DEFAULT_ALPHA));
+                Detector detector = DetectorFactory.getFactory(DEFAULT_PROFILE).create(getDouble("alpha", DEFAULT_ALPHA));
                 if (hasOpt("--debug")) detector.setVerbose();
                 detector.append(is);
                 System.out.println(filename + ":" + detector.getProbabilities());
@@ -258,7 +261,7 @@ public class Command {
                     String correctLang = line.substring(0, idx);
                     String text = line.substring(idx + 1);
                     
-                    Detector detector = DetectorFactory.create(getDouble("alpha", DEFAULT_ALPHA));
+                    Detector detector = DetectorFactory.getFactory(DEFAULT_PROFILE).create(getDouble("alpha", DEFAULT_ALPHA));
                     detector.append(text);
                     String lang = "";
                     try {

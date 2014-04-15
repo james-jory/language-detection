@@ -88,7 +88,7 @@ public class Detector {
         this.wordLangProbMap = factory.wordLangProbMap;
         this.langlist = factory.langlist;
         this.text = new StringBuffer();
-        this.seed  = factory.seed;
+        this.seed = factory.seed;
     }
 
     /**
