@@ -30,16 +30,22 @@ import com.cybozu.labs.langdetect.util.NGram;
  * import com.cybozu.labs.langdetect.Language;
  * 
  * class LangDetectSample {
+ *     DetectorFactory factory;
+ *     
  *     public void init(String profileDirectory) throws LangDetectException {
- *         DetectorFactory.loadProfile(profileDirectory);
+ *         factory = DetectorFactory.getFactory("my factory");
+ *         // Do this once.
+ *         factory.loadProfile(profileDirectory);
  *     }
+ *     
  *     public String detect(String text) throws LangDetectException {
- *         Detector detector = DetectorFactory.create();
+ *         Detector detector = factory.create();
  *         detector.append(text);
  *         return detector.detect();
  *     }
+ *     
  *     public ArrayList<Language> detectLangs(String text) throws LangDetectException {
- *         Detector detector = DetectorFactory.create();
+ *         Detector detector = factory.create();
  *         detector.append(text);
  *         return detector.getProbabilities();
  *     }
