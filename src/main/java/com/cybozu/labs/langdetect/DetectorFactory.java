@@ -3,11 +3,17 @@ package com.cybozu.labs.langdetect;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 import net.arnx.jsonic.JSON;
 import net.arnx.jsonic.JSONException;
@@ -26,6 +32,11 @@ import com.cybozu.labs.langdetect.util.LangProfile;
  * When the language detection factory is created and loaded with a profile/model, construct 
  * Detector instance via {@link DetectorFactory#create()}.
  * 
+ * There are two default factories that load the profile/model for detecting standard/longer text
+ * and another for detecting shorter text. The profiles for both of these factories are bundled 
+ * with the module's JAR and loaded as resources. To use your own profile/model, you must 
+ * create a factory and load your profile before creating Detector instances.
+ * 
  * See also {@link Detector}'s sample code.
  * 
  * <ul>
@@ -37,6 +48,8 @@ import com.cybozu.labs.langdetect.util.LangProfile;
  */
 public class DetectorFactory {
 	private static final Map<String, DetectorFactory> factories = new HashMap<String, DetectorFactory>();
+	private static final String DEFAULT_PROFILE = "DEFAULT";
+	private static final String DEFAULT_SHORT_PROFILE = "SHORT";
 	
     HashMap<String, double[]> wordLangProbMap;
     ArrayList<String> langlist;
@@ -47,6 +60,88 @@ public class DetectorFactory {
         langlist = new ArrayList<String>();
     }
 
+    public static DetectorFactory getDefaultFactory() throws LangDetectException {
+    	DetectorFactory factory = getFactory(DEFAULT_PROFILE, false);
+    	
+    	synchronized(factory) {
+    		if (factory.langlist.isEmpty())
+    			factory.loadProfileAsResource("profiles/");
+    	}
+    	
+    	return factory;
+    }
+
+    public static DetectorFactory getDefaultShortTextFactory() throws LangDetectException {
+    	DetectorFactory factory = getFactory(DEFAULT_SHORT_PROFILE, false);
+    	
+    	synchronized(factory) {
+    		if (factory.langlist.isEmpty())
+    			factory.loadProfileAsResource("profiles.sm/");
+    	}
+    	
+    	return factory;
+    }
+    
+    private synchronized void loadProfileAsResource(String path) throws LangDetectException {
+    	CodeSource src = DetectorFactory.class.getProtectionDomain().getCodeSource();
+    	if (src == null)
+            throw new LangDetectException(ErrorCode.NeedLoadProfileError, "Not found profile: " + path);
+    	
+    	URL url = src.getLocation();    	
+    	if (url == null)
+            throw new LangDetectException(ErrorCode.NeedLoadProfileError, "Not found profile: " + path);
+    	
+    	JarFile jar = null;
+    	
+    	try {
+    		jar = new JarFile(url.getFile());
+
+    		Enumeration<JarEntry> enumEntries = jar.entries();
+    		
+    		List<LangProfile> profiles = new ArrayList<LangProfile>();
+    		
+    		while (enumEntries.hasMoreElements()) {
+    			JarEntry entry = enumEntries.nextElement();
+    			if (entry.isDirectory())
+    				continue;
+                
+    			String name = entry.getName();
+    			if (name.startsWith(path)) {
+    				InputStream is = null;
+                	
+    				try {
+    					is = jar.getInputStream(entry);
+    					LangProfile profile = JSON.decode(is, LangProfile.class);
+    					profiles.add(profile);
+    				} 
+    				catch (JSONException e) {
+    					throw new LangDetectException(ErrorCode.FormatError, "profile format error in '" + name + "'");
+    				}
+    				catch (IOException e) {
+    					throw new LangDetectException(ErrorCode.FileLoadError, "can't open '" + name + "'");
+    				} 
+    				finally {
+    					try {
+    						if (is!=null) is.close();
+    					} catch (IOException e) {}
+    				}
+    			}
+    		}
+    		
+    		int langsize = profiles.size();
+    		for (int i = 0; i < langsize; i++)
+    			addProfile(profiles.get(i), i, langsize);
+    	}
+    	catch (IOException e) {
+    		throw new LangDetectException(ErrorCode.FileLoadError, "can't open '" + url + "'");
+    	}
+    	finally {
+    		if (jar != null) {
+    			try { jar.close(); } catch (IOException e) {}
+    		}
+    	}
+	}
+    
     /**
      * Load profiles from specified directory.
      * This method must be called once before language detection.
@@ -121,6 +216,13 @@ public class DetectorFactory {
     }
     
     public static DetectorFactory getFactory(String profileName) {
+    	return getFactory(profileName, true);
+    }
+    
+    private static DetectorFactory getFactory(String profileName, boolean checkReserved) {
+    	if (checkReserved && (DEFAULT_PROFILE.equals(profileName) || DEFAULT_SHORT_PROFILE.equals(profileName)))
+    		throw new IllegalArgumentException("Profile name is a reserved name");
+    	
     	synchronized(factories) {
 	    	if (factories.containsKey(profileName))
 	    		return factories.get(profileName);

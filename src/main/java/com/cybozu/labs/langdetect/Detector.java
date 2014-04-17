@@ -6,6 +6,8 @@ import java.lang.Character.UnicodeBlock;
 import java.util.ArrayList;
 import java.util.Formatter;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.regex.Pattern;
 
@@ -44,7 +46,7 @@ import com.cybozu.labs.langdetect.util.NGram;
  *         return detector.detect();
  *     }
  *     
- *     public ArrayList<Language> detectLangs(String text) throws LangDetectException {
+ *     public List<Language> detectLangs(String text) throws LangDetectException {
  *         Detector detector = factory.create();
  *         detector.append(text);
  *         return detector.getProbabilities();
@@ -76,14 +78,14 @@ public class Detector {
     private final ArrayList<String> langlist;
 
     private StringBuffer text;
-    private double[] langprob = null;
+    private double[] langprob;
 
     private double alpha = ALPHA_DEFAULT;
     private int n_trial = 7;
     private int max_text_length = 10000;
-    private double[] priorMap = null;
-    private boolean verbose = false;
-    private Long seed = null;
+    private double[] priorMap;
+    private boolean verbose;
+    private Long seed;
 
     /**
      * Constructor.
@@ -93,8 +95,8 @@ public class Detector {
     public Detector(DetectorFactory factory) {
         this.wordLangProbMap = factory.wordLangProbMap;
         this.langlist = factory.langlist;
-        this.text = new StringBuffer();
         this.seed = factory.seed;
+        this.text = new StringBuffer();
     }
 
     /**
@@ -114,24 +116,39 @@ public class Detector {
     }
 
     /**
-     * Set prior information about language probabilities.
+     * Set priority information about language probabilities.
      * @param priorMap the priorMap to set
      * @throws LangDetectException 
      */
-    public void setPriorMap(HashMap<String, Double> priorMap) throws LangDetectException {
+    public void setPriorityMap(Map<String, Double> priorMap, boolean additive) throws LangDetectException {
         this.priorMap = new double[langlist.size()];
         double sump = 0;
         for (int i=0;i<this.priorMap.length;++i) {
             String lang = langlist.get(i);
+            double defaultPriority = 1.0 / langlist.size();
             if (priorMap.containsKey(lang)) {
                 double p = priorMap.get(lang);
-                if (p<0) throw new LangDetectException(ErrorCode.InitParamError, "Prior probability must be non-negative.");
+                if (additive) 
+                	p = Math.max(0, defaultPriority + p);
+                else if (p < 0) 
+                	throw new LangDetectException(ErrorCode.InitParamError, "Priority probability must be non-negative.");
+                
                 this.priorMap[i] = p;
                 sump += p;
             }
+            else if (additive) {
+                this.priorMap[i] = defaultPriority;
+                sump += defaultPriority;
+            }
         }
-        if (sump<=0) throw new LangDetectException(ErrorCode.InitParamError, "More one of prior probability must be non-zero.");
-        for (int i=0;i<this.priorMap.length;++i) this.priorMap[i] /= sump;
+        
+        if (sump <= 0) 
+        	throw new LangDetectException(ErrorCode.InitParamError, "More than one of priority probability must be non-zero.");
+        
+        if (!additive) {
+        	for (int i = 0; i < this.priorMap.length; ++i) 
+        		this.priorMap[i] /= sump;
+        }
     }
     
     /**
@@ -212,7 +229,7 @@ public class Detector {
      *  code = ErrorCode.CantDetectError : Can't detect because of no valid features in text
      */
     public String detect() throws LangDetectException {
-        ArrayList<Language> probabilities = getProbabilities();
+        List<Language> probabilities = getProbabilities();
         if (probabilities.size() > 0) return probabilities.get(0).lang;
         return UNKNOWN_LANG;
     }
@@ -223,7 +240,7 @@ public class Detector {
      * @throws LangDetectException 
      *  code = ErrorCode.CantDetectError : Can't detect because of no valid features in text
      */
-    public ArrayList<Language> getProbabilities() throws LangDetectException {
+    public List<Language> getProbabilities() throws LangDetectException {
         if (langprob == null) detectBlock();
 
         ArrayList<Language> list = sortProbability(langprob);
@@ -268,10 +285,11 @@ public class Detector {
      */
     private double[] initProbability() {
         double[] prob = new double[langlist.size()];
-        if (priorMap != null) {
-            for(int i=0;i<prob.length;++i) prob[i] = priorMap[i];
-        } else {
-            for(int i=0;i<prob.length;++i) prob[i] = 1.0 / langlist.size();
+        if (priorMap != null) 
+        	System.arraycopy(priorMap, 0, prob, 0, prob.length);
+        else {
+            for (int i=0;i<prob.length;++i) 
+            	prob[i] = 1.0 / langlist.size();
         }
         return prob;
     }
