@@ -7,7 +7,7 @@ profiles/models.
 
 Also reorganized project to fit a more conventional structure.
 
-## Example
+## Examples
 
 There are two profiles/models for language detection bundled with the JAR. The default profile/model 
 is suitable for longer text. There is a second profile/model that is optimized for shorter text. 
@@ -69,3 +69,32 @@ catch (LangDetectException e) {
 	// Something went wrong.
 }
 ``` 
+
+### Language Preferences
+
+You can limit and/or set language preferences on the Detector. The key is whether 
+the priorities are set as additive or not (the second parameter to Detector.setPriorityMap). 
+When set as additive, the priority map is added to all existing supported languages. That is, 
+the map value for each language in your map is added to the default priority.
+
+When additive is false, your priority map replaces the values used by your Detector instance 
+which essentially limits the languages detected to those in your priority map. 
+
+```
+DetectorFactory factory = DetectorFactory.getDefaultFactory();
+Detector detector = factory.create();
+
+// Limit detection to "en", "es", and "it" only with higher priority on "en".
+Map<String, Double> priorities = new HashMap<String, Double>();
+priorities.put("en", .1);
+priorities.put("es", .05);
+priorities.put("it", .05);
+
+detector.setPriorityMap(priorities, false);
+
+// Detect all supported languages but just set a higher priority on "en".
+priorities = new HashMap<String, Double>();
+priorities.put("en", 1.0);
+
+detector.setPriorityMap(priorities, true);
+```
